@@ -1,0 +1,200 @@
+/* MyAEW Speed Controller Styles */
+
+.myaew-speed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 2147483640;
+  user-select: none;
+  transition: all 0.2s ease;
+  transform: scale(1.5);
+}
+
+.myaew-speed-btn:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.55);
+}
+
+.myaew-speed-btn-floating {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+/* Speed Popup matching YouTube-like UI */
+.myaew-speed-popup {
+  position: absolute;
+  background: rgba(24, 24, 24, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 16px 20px 14px;
+  width: 320px;
+  box-sizing: border-box;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  z-index: 2147483645;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #ffffff;
+  user-select: none;
+  animation: myaew-fade-in 0.15s ease-out;
+}
+
+@keyframes myaew-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.myaew-speed-popup-header {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+  color: #ffffff;
+}
+
+/* Slider row */
+.myaew-speed-slider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.myaew-circle-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 50%;
+  background: #383838;
+  border: none;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.myaew-circle-btn:hover {
+  background: #4a4a4a;
+}
+
+.myaew-circle-btn:active {
+  transform: scale(0.92);
+}
+
+.myaew-slider-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.myaew-speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: #555555;
+  outline: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+.myaew-speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s ease;
+}
+
+.myaew-speed-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.myaew-speed-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+/* Preset buttons row */
+.myaew-speed-presets-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.myaew-preset-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.myaew-preset-btn {
+  width: 100%;
+  background: #383838;
+  border: none;
+  border-radius: 18px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.myaew-preset-btn:hover {
+  background: #4a4a4a;
+}
+
+.myaew-preset-btn.active {
+  background: #ffffff;
+  color: #121212;
+}
+
+.myaew-preset-btn:active {
+  transform: scale(0.94);
+}
+
+.myaew-preset-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 4px;
+  text-align: center;
+  font-weight: 500;
+}

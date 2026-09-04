@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "MyAEW Speed Controller",
+  "version": "1.0.0",
+  "description": "Native, intuitive video playback speed controller designed specifically for MyAEW.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.myaew.com/*",
+    "*://*.myaew.org/*",
+    "*://*.myaew.net/*",
+    "*://*.myaew.edu.au/*",
+    "*://myaew.com/*",
+    "*://myaew.org/*",
+    "*://myaew.net/*",
+    "*://myaew.edu.au/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.myaew.com/*",
+        "*://*.myaew.org/*",
+        "*://*.myaew.net/*",
+        "*://*.myaew.edu.au/*",
+        "*://myaew.com/*",
+        "*://myaew.org/*",
+        "*://myaew.net/*",
+        "*://myaew.edu.au/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
