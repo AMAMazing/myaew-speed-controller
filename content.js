@@ -1,8 +1,38 @@
 (() => {
-  // Presets cap out at 3.0x
+  // --- 1. INJECT BUFFER BOOSTER INTO PAGE CONTEXT ---
+  // Overrides Hls.js / Video.js default buffer targets so the browser loads further ahead
+  const injectScript = document.createElement("script");
+  injectScript.textContent = `
+    (() => {
+      const applyBufferConfig = () => {
+        // Hls.js configuration
+        if (window.Hls && window.Hls.DefaultConfig) {
+          window.Hls.DefaultConfig.maxBufferLength = 60; // Buffer 60s ahead
+          window.Hls.DefaultConfig.maxMaxBufferLength = 120; // Allow up to 120s
+          window.Hls.DefaultConfig.maxBufferSize = 60 * 1000 * 1000; // 60MB max
+          window.Hls.DefaultConfig.lowBufferWatchdogPeriod = 1;
+        }
+
+        // Search for existing active Hls instances attached to elements
+        document.querySelectorAll('video').forEach(v => {
+          if (v.hls) {
+            v.hls.config.maxBufferLength = 60;
+            v.hls.config.maxMaxBufferLength = 120;
+            v.hls.config.maxBufferSize = 60 * 1000 * 1000;
+          }
+        });
+      };
+
+      applyBufferConfig();
+      setInterval(applyBufferConfig, 3000);
+    })();
+  `;
+  (document.head || document.documentElement).appendChild(injectScript);
+  injectScript.remove();
+
+  // --- 2. EXTENSION LOGIC ---
   const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0];
   const MIN_SPEED = 0.25;
-  // Slider still maxes out at 10.0x
   const MAX_SPEED = 10.0;
   const STEP = 0.05;
 
@@ -49,11 +79,11 @@
 
   function setVideoSpeed(video, speed, updateStorage = true) {
     const clamped = Math.max(MIN_SPEED, Math.min(MAX_SPEED, Math.round(speed * 100) / 100));
-    
+
     isInternalSpeedChange = true;
     video.playbackRate = clamped;
     isInternalSpeedChange = false;
-    
+
     currentSavedSpeed = clamped;
 
     if (updateStorage && typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
@@ -97,11 +127,13 @@
   }
 
   function getFullscreenContainer() {
-    return document.fullscreenElement || 
-           document.webkitFullscreenElement || 
-           document.mozFullScreenElement || 
-           document.msFullscreenElement || 
-           document.body;
+    return (
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement ||
+      document.body
+    );
   }
 
   function createSpeedPopup(video, triggerBtn) {
@@ -109,7 +141,7 @@
 
     const popup = document.createElement("div");
     popup.className = "myaew-speed-popup";
-    popup.style.zIndex = "2147483647"; // Max z-index to stay above player controls
+    popup.style.zIndex = "2147483647";
     popup.style.position = "absolute";
     popup._video = video;
 
@@ -199,11 +231,9 @@
     popup.appendChild(presetsRow);
     popup.addEventListener("click", (e) => e.stopPropagation());
 
-    // Append to fullscreen container if active, otherwise body
     const container = getFullscreenContainer();
     container.appendChild(popup);
 
-    // Calculate relative positioning
     const triggerRect = triggerBtn.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
     const popupRect = popup.getBoundingClientRect();
@@ -211,13 +241,11 @@
     const popupWidth = popupRect.width || 320;
     const popupHeight = popupRect.height || 150;
 
-    // Position relative to the container element
-    let top = (triggerRect.top - containerRect.top) - popupHeight - POPUP_OFFSET.above;
-    let left = (triggerRect.left - containerRect.left) + (triggerRect.width / 2) - (popupWidth / 2);
+    let top = triggerRect.top - containerRect.top - popupHeight - POPUP_OFFSET.above;
+    let left = triggerRect.left - containerRect.left + triggerRect.width / 2 - popupWidth / 2;
 
-    // Bounds safety checks within container
     if (top < 10) {
-      top = (triggerRect.bottom - containerRect.top) + POPUP_OFFSET.below;
+      top = triggerRect.bottom - containerRect.top + POPUP_OFFSET.below;
     }
     if (left < 10) {
       left = 10;
@@ -236,11 +264,12 @@
   }
 
   function placeSpeedButton(video, speedBtn) {
-    const rightSideControls = document.querySelector('.player-controls .right-side');
+    const rightSideControls = document.querySelector(".player-controls .right-side");
 
     if (rightSideControls) {
       if (speedBtn.parentElement !== rightSideControls) {
-        speedBtn.className = "myaew-speed-btn relative flex w-8 h-8 flex-col items-center justify-center cursor-pointer";
+        speedBtn.className =
+          "myaew-speed-btn relative flex w-8 h-8 flex-col items-center justify-center cursor-pointer";
         speedBtn.style.cssText = TRANSPARENT_BTN_STYLE;
         rightSideControls.insertBefore(speedBtn, rightSideControls.firstChild);
       }
@@ -286,21 +315,44 @@
 
     placeSpeedButton(video, speedBtn);
 
-    // Prevent player scripts from resetting speed back to 1.0 (e.g., on fullscreen switch)
+    // --- AUTO BUFFER RECOVERY ---
+    // If the video runs out of buffer while sped up, pause for 2.5s to let chunk download catch up
+    let isBufferingHold = false;
+    const handleBufferUnderrun = () => {
+      if (video.playbackRate > 1.0 && !video.paused && !isBufferingHold) {
+        isBufferingHold = true;
+        video.pause();
+        setTimeout(() => {
+          video.play().finally(() => {
+            isBufferingHold = false;
+          });
+        }, 2500); // 2.5 second cushion
+      }
+    };
+
+    video.addEventListener("waiting", handleBufferUnderrun);
+    video.addEventListener("stalled", handleBufferUnderrun);
+
+    // Debounced rate enforcement to stop event-fighting loops
+    let rateDebounce = null;
     video.addEventListener("ratechange", () => {
-      if (!isInternalSpeedChange && currentSavedSpeed && video.playbackRate !== currentSavedSpeed) {
-        // Player tried to force reset speed, override it back to saved speed
-        isInternalSpeedChange = true;
-        video.playbackRate = currentSavedSpeed;
-        isInternalSpeedChange = false;
-      }
-      if (activePopup && activePopup._video === video) {
-        updatePopupUI(activePopup, video.playbackRate);
-      }
+      if (isInternalSpeedChange) return;
+
+      clearTimeout(rateDebounce);
+      rateDebounce = setTimeout(() => {
+        if (currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
+          isInternalSpeedChange = true;
+          video.playbackRate = currentSavedSpeed;
+          isInternalSpeedChange = false;
+        }
+        if (activePopup && activePopup._video === video) {
+          updatePopupUI(activePopup, video.playbackRate);
+        }
+      }, 150);
     });
 
     video.addEventListener("play", () => {
-      if (currentSavedSpeed && video.playbackRate !== currentSavedSpeed) {
+      if (currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
         video.playbackRate = currentSavedSpeed;
       }
     });
@@ -317,10 +369,8 @@
     });
   }
 
-  // Handle Fullscreen events
   function handleFullscreenChange() {
     closePopup();
-    // Enforce speeds and button placement after fullscreen transition
     setTimeout(() => {
       scanAndAttachVideos();
       applySpeedToAllVideos(currentSavedSpeed);
