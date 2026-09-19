@@ -1,34 +1,10 @@
 (() => {
-  // --- 1. INJECT BUFFER BOOSTER INTO PAGE CONTEXT ---
+  // --- 1. INJECT BUFFER BOOSTER VIA EXTERNAL URL ---
   // Overrides Hls.js / Video.js default buffer targets so the browser loads further ahead
   const injectScript = document.createElement("script");
-  injectScript.textContent = `
-    (() => {
-      const applyBufferConfig = () => {
-        // Hls.js configuration
-        if (window.Hls && window.Hls.DefaultConfig) {
-          window.Hls.DefaultConfig.maxBufferLength = 60; // Buffer 60s ahead
-          window.Hls.DefaultConfig.maxMaxBufferLength = 120; // Allow up to 120s
-          window.Hls.DefaultConfig.maxBufferSize = 60 * 1000 * 1000; // 60MB max
-          window.Hls.DefaultConfig.lowBufferWatchdogPeriod = 1;
-        }
-
-        // Search for existing active Hls instances attached to elements
-        document.querySelectorAll('video').forEach(v => {
-          if (v.hls) {
-            v.hls.config.maxBufferLength = 60;
-            v.hls.config.maxMaxBufferLength = 120;
-            v.hls.config.maxBufferSize = 60 * 1000 * 1000;
-          }
-        });
-      };
-
-      applyBufferConfig();
-      setInterval(applyBufferConfig, 3000);
-    })();
-  `;
+  injectScript.src = chrome.runtime.getURL("buffer.js");
+  injectScript.onload = () => injectScript.remove();
   (document.head || document.documentElement).appendChild(injectScript);
-  injectScript.remove();
 
   // --- 2. EXTENSION LOGIC ---
   const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0];
