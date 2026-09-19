@@ -1,34 +1,35 @@
 (() => {
   // --- 1. BITMOVIN BUFFER BOOSTER (Runs directly in page context) ---
   const applyBufferConfig = () => {
-    // Look for the Bitmovin wrapper element
     const wrapper = document.querySelector('.bitmovinplayer-container') || document.querySelector('.bm-wrapper');
     
-    if (wrapper && wrapper.player && typeof wrapper.player.getConfig === 'function') {
-      try {
-        const config = wrapper.player.getConfig();
-        let updated = false;
+    if (wrapper && wrapper.player) {
+      const bp = wrapper.player;
+      
+      // 1. Actively force the running Buffer Manager to 120 seconds for both video and audio
+      if (bp.buffer && typeof bp.buffer.setTargetLevel === 'function') {
+        try {
+          bp.buffer.setTargetLevel('forwardduration', 120, 'video');
+          bp.buffer.setTargetLevel('forwardduration', 120, 'audio');
+        } catch (e) {
+          // Ignore if API changes in future Bitmovin versions
+        }
+      }
 
-        // Force a massive 120-second buffer for high-speed playback
-        if (!config.buffer) config.buffer = {};
-        if (!config.buffer.video) config.buffer.video = {};
-        
-        if (config.buffer.video.forwardduration !== 120) {
+      // 2. Also update the config object just in case they reload/restart the stream
+      if (typeof bp.getConfig === 'function') {
+        try {
+          const config = bp.getConfig();
+          if (!config.buffer) config.buffer = {};
+          if (!config.buffer.video) config.buffer.video = {};
+          if (!config.buffer.audio) config.buffer.audio = {};
+          
           config.buffer.video.forwardduration = 120;
-          updated = true;
-        }
+          config.buffer.audio.forwardduration = 120;
 
-        if (!config.tweaks) config.tweaks = {};
-        if (config.tweaks.max_buffer_level !== 120) {
+          if (!config.tweaks) config.tweaks = {};
           config.tweaks.max_buffer_level = 120;
-          updated = true;
-        }
-
-        if (updated) {
-          console.log("🚀 [MyAEW Extension] Bitmovin buffer target boosted to 120s!");
-        }
-      } catch (e) {
-        // Fail silently so we don't spam the console
+        } catch (e) {}
       }
     }
   };
