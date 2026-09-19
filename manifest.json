@@ -28,15 +28,11 @@
         "*://myaew.net/*",
         "*://myaew.edu.au/*"
       ],
-      "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_end",
       "all_frames": true
-    }
-  ],
-  "web_accessible_resources": [
+    },
     {
-      "resources": ["buffer.js"],
       "matches": [
         "*://*.myaew.com/*",
         "*://*.myaew.org/*",
@@ -46,7 +42,11 @@
         "*://myaew.org/*",
         "*://myaew.net/*",
         "*://myaew.edu.au/*"
-      ]
+      ],
+      "js": ["content.js"],
+      "world": "MAIN",
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "icons": {

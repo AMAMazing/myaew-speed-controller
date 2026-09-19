@@ -1,12 +1,44 @@
 (() => {
-  // --- 1. INJECT BUFFER BOOSTER VIA EXTERNAL URL ---
-  // Overrides Hls.js / Video.js default buffer targets so the browser loads further ahead
-  const injectScript = document.createElement("script");
-  injectScript.src = chrome.runtime.getURL("buffer.js");
-  injectScript.onload = () => injectScript.remove();
-  (document.head || document.documentElement).appendChild(injectScript);
+  // --- 1. BITMOVIN BUFFER BOOSTER (Runs directly in page context) ---
+  const applyBufferConfig = () => {
+    // Look for the Bitmovin wrapper element
+    const wrapper = document.querySelector('.bitmovinplayer-container') || document.querySelector('.bm-wrapper');
+    
+    if (wrapper && wrapper.player && typeof wrapper.player.getConfig === 'function') {
+      try {
+        const config = wrapper.player.getConfig();
+        let updated = false;
 
-  // --- 2. EXTENSION LOGIC ---
+        // Force a massive 120-second buffer for high-speed playback
+        if (!config.buffer) config.buffer = {};
+        if (!config.buffer.video) config.buffer.video = {};
+        
+        if (config.buffer.video.forwardduration !== 120) {
+          config.buffer.video.forwardduration = 120;
+          updated = true;
+        }
+
+        if (!config.tweaks) config.tweaks = {};
+        if (config.tweaks.max_buffer_level !== 120) {
+          config.tweaks.max_buffer_level = 120;
+          updated = true;
+        }
+
+        if (updated) {
+          console.log("🚀 [MyAEW Extension] Bitmovin buffer target boosted to 120s!");
+        }
+      } catch (e) {
+        // Fail silently so we don't spam the console
+      }
+    }
+  };
+
+  // Run immediately, and check every 3 seconds (in case you navigate to a new video)
+  applyBufferConfig();
+  setInterval(applyBufferConfig, 3000);
+
+
+  // --- 2. EXTENSION SPEED LOGIC ---
   const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0];
   const MIN_SPEED = 0.25;
   const MAX_SPEED = 10.0;
@@ -29,14 +61,14 @@
   let currentSavedSpeed = 1.0;
   let isInternalSpeedChange = false;
 
-  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get(["myaew_playback_speed"], (result) => {
-      if (result.myaew_playback_speed) {
-        currentSavedSpeed = parseFloat(result.myaew_playback_speed);
-        applySpeedToAllVideos(currentSavedSpeed);
-      }
-    });
-  }
+  // Use localStorage because chrome.storage is unavailable in the MAIN world
+  try {
+    const saved = localStorage.getItem("myaew_playback_speed");
+    if (saved) {
+      currentSavedSpeed = parseFloat(saved);
+      applySpeedToAllVideos(currentSavedSpeed);
+    }
+  } catch (e) {}
 
   const processedVideos = new WeakSet();
   let activePopup = null;
@@ -62,8 +94,10 @@
 
     currentSavedSpeed = clamped;
 
-    if (updateStorage && typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ myaew_playback_speed: clamped });
+    if (updateStorage) {
+      try {
+        localStorage.setItem("myaew_playback_speed", clamped.toString());
+      } catch (e) {}
     }
 
     if (activePopup && activePopup._video === video) {
@@ -123,13 +157,11 @@
 
     const currentSpeed = video.playbackRate || 1.0;
 
-    // Header
     const header = document.createElement("div");
     header.className = "myaew-speed-popup-header";
     header.textContent = formatSpeed(currentSpeed);
     popup.appendChild(header);
 
-    // Slider Row
     const sliderRow = document.createElement("div");
     sliderRow.className = "myaew-speed-slider-row";
 
@@ -174,7 +206,6 @@
     sliderRow.appendChild(plusBtn);
     popup.appendChild(sliderRow);
 
-    // Presets Row
     const presetsRow = document.createElement("div");
     presetsRow.className = "myaew-speed-presets-row";
 
@@ -291,8 +322,7 @@
 
     placeSpeedButton(video, speedBtn);
 
-    // --- AUTO BUFFER RECOVERY ---
-    // If the video runs out of buffer while sped up, pause for 2.5s to let chunk download catch up
+    // Minor pause cushion if the massive buffer somehow still runs out
     let isBufferingHold = false;
     const handleBufferUnderrun = () => {
       if (video.playbackRate > 1.0 && !video.paused && !isBufferingHold) {
@@ -302,14 +332,13 @@
           video.play().finally(() => {
             isBufferingHold = false;
           });
-        }, 2500); // 2.5 second cushion
+        }, 2500);
       }
     };
 
     video.addEventListener("waiting", handleBufferUnderrun);
     video.addEventListener("stalled", handleBufferUnderrun);
 
-    // Debounced rate enforcement to stop event-fighting loops
     let rateDebounce = null;
     video.addEventListener("ratechange", () => {
       if (isInternalSpeedChange) return;
