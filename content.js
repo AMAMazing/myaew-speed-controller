@@ -90,19 +90,48 @@
       if (video.paused || video.readyState === 0) return;
 
       const buffer = getBufferAhead(video);
+      
+      // Calculate Rate of Change (Predictive Braking)
+      const prevBuffer = video._previousBuffer !== undefined ? video._previousBuffer : buffer;
+      const bufferDelta = buffer - prevBuffer;
+      video._previousBuffer = buffer;
+
       let currentRate = video.playbackRate;
+      let targetRate = currentSavedSpeed; // Target speed is controlled by the user
       let newRate = currentRate;
+      let isRecovering = video._isRecovering || false;
 
-      // Smart logic: Balances download speed with playback speed
-      if (buffer > 60) newRate += 0.10;        // Massive buffer: Speed up fast
-      else if (buffer > 40) newRate += 0.05;   // Good buffer: Speed up gently
-      // 20s to 40s is the sweet spot. We hold speed steady here.
-      else if (buffer < 5) newRate = 1.0;      // Critical! Drop to normal immediately
-      else if (buffer < 10) newRate -= 0.25;   // Shrinking fast: Brake hard
-      else if (buffer < 20) newRate -= 0.10;   // Dropping out of sweet spot: Brake gently
+      // 1. Seamless 1.0x Recovery Lock
+      if (isRecovering) {
+        if (buffer > 25) {
+          isRecovering = false; // Release the lock
+        } else {
+          newRate = 1.0; // Stay locked
+        }
+      }
 
-      // Clamp between 1.0x and MAX_SPEED (Don't auto-slow below 1.0x)
-      newRate = Math.max(1.0, Math.min(MAX_SPEED, newRate));
+      // 2. Main Speed Logic
+      if (!isRecovering) {
+        if (buffer < 5) {
+          newRate = 1.0; // Critical stall emergency
+          isRecovering = true;
+        } else if (buffer < 10 || (buffer < 15 && bufferDelta < -2)) {
+          newRate -= 0.25; // Shrinking fast or critical: Brake hard
+        } else if (buffer < 20 || (buffer < 25 && bufferDelta < -1)) {
+          newRate -= 0.10; // Dropping out of sweet spot: Brake gently
+        } else if (buffer > 40 && bufferDelta >= 0) {
+          newRate += 0.10; // Massive buffer: Speed up fast towards target
+        } else if (buffer > 25 && bufferDelta > 1) {
+          newRate += 0.05; // Good buffer recovering: Speed up gently
+        }
+
+        // Auto-Throttling (Target Speed)
+        newRate = Math.min(newRate, targetRate);
+        // Don't auto-slow below 1.0x unless target is lower
+        newRate = Math.max(Math.min(1.0, targetRate), Math.min(MAX_SPEED, newRate));
+      }
+
+      video._isRecovering = isRecovering;
 
       // Apply if there is a meaningful change
       if (Math.abs(newRate - currentRate) >= 0.01) {
@@ -111,8 +140,8 @@
     });
   }
 
-  // Run the smart loop every 1 second
-  setInterval(manageSmartSpeed, 1000);
+  // Run the smart loop every 2500ms (Debouncing Audio Warble)
+  setInterval(manageSmartSpeed, 2500);
   // ----------------------------------
 
   function applySpeedToAllVideos(speed) {
@@ -133,10 +162,10 @@
 
     if (isManual) {
       currentSavedSpeed = clamped;
-      isSmartSpeedEnabled = false; // Disable smart speed if user manually adjusts
+      // We DO NOT turn off Smart Speed when user adjusts. 
+      // Instead, we let them set their "Target Rate".
       try {
         localStorage.setItem("myaew_playback_speed", clamped.toString());
-        localStorage.setItem("myaew_smart_speed_enabled", "false");
       } catch (e) {}
     }
 
@@ -147,26 +176,36 @@
 
   function closePopup() {
     if (activePopup) {
+      if (activePopup._telemetryInterval) {
+        clearInterval(activePopup._telemetryInterval);
+      }
       activePopup.remove();
       activePopup = null;
     }
   }
 
-  function updatePopupUI(popup, speed) {
+  function updatePopupUI(popup, currentRate) {
+    // If Smart Speed is ON, the slider/header act as the Target UI.
+    const displaySpeed = isSmartSpeedEnabled ? currentSavedSpeed : currentRate;
+
     const header = popup.querySelector(".myaew-speed-popup-header");
-    if (header) header.textContent = formatSpeed(speed);
+    if (header) {
+      header.textContent = isSmartSpeedEnabled 
+        ? "Target: " + formatSpeed(displaySpeed) 
+        : formatSpeed(displaySpeed);
+    }
 
     const slider = popup.querySelector(".myaew-speed-slider");
     if (slider) {
-      slider.value = speed;
-      const percent = ((speed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)) * 100;
+      slider.value = displaySpeed;
+      const percent = ((displaySpeed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED)) * 100;
       slider.style.background = `linear-gradient(to right, #ffffff ${percent}%, #555555 ${percent}%)`;
     }
 
     const presetButtons = popup.querySelectorAll(".myaew-preset-btn");
     presetButtons.forEach((btn) => {
       const presetVal = parseFloat(btn.dataset.speed);
-      if (Math.abs(presetVal - speed) < 0.01) btn.classList.add("active");
+      if (Math.abs(presetVal - displaySpeed) < 0.01) btn.classList.add("active");
       else btn.classList.remove("active");
     });
 
@@ -203,7 +242,6 @@
 
     const header = document.createElement("div");
     header.className = "myaew-speed-popup-header";
-    header.textContent = formatSpeed(currentSpeed);
     popup.appendChild(header);
 
     const sliderRow = document.createElement("div");
@@ -215,7 +253,8 @@
     minusBtn.title = "Decrease speed";
     minusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      setVideoSpeed(video, video.playbackRate - STEP, true); // true = Manual
+      // true = Manual change (updates target if smart is on)
+      setVideoSpeed(video, (isSmartSpeedEnabled ? currentSavedSpeed : video.playbackRate) - STEP, true); 
     });
 
     const sliderContainer = document.createElement("div");
@@ -227,7 +266,6 @@
     slider.min = MIN_SPEED;
     slider.max = MAX_SPEED;
     slider.step = STEP;
-    slider.value = currentSpeed;
     slider.addEventListener("input", (e) => setVideoSpeed(video, parseFloat(e.target.value), true));
 
     sliderContainer.appendChild(slider);
@@ -238,7 +276,7 @@
     plusBtn.title = "Increase speed";
     plusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      setVideoSpeed(video, video.playbackRate + STEP, true);
+      setVideoSpeed(video, (isSmartSpeedEnabled ? currentSavedSpeed : video.playbackRate) + STEP, true);
     });
 
     sliderRow.appendChild(minusBtn);
@@ -283,8 +321,6 @@
     indicator.className = "myaew-smart-indicator";
     
     const textSpan = document.createElement("span");
-    textSpan.textContent = isSmartSpeedEnabled ? "Smart Auto-Speed: ON" : "Smart Auto-Speed: OFF";
-    
     smartBtn.appendChild(indicator);
     smartBtn.appendChild(textSpan);
 
@@ -306,6 +342,40 @@
 
     smartRow.appendChild(smartBtn);
     popup.appendChild(smartRow);
+    
+    // --- LIVE TELEMETRY UI ---
+    const telemetryRow = document.createElement("div");
+    telemetryRow.className = "myaew-telemetry-row";
+    
+    const telemetryText = document.createElement("div");
+    telemetryText.className = "myaew-telemetry-text";
+    
+    telemetryRow.appendChild(telemetryText);
+    popup.appendChild(telemetryRow);
+
+    const updateTelemetry = () => {
+      if (activePopup !== popup) return;
+      
+      if (!isSmartSpeedEnabled) {
+        telemetryRow.style.display = 'none';
+        return;
+      }
+      
+      telemetryRow.style.display = 'block';
+      const rate = video.playbackRate.toFixed(2);
+      const buf = Math.round(getBufferAhead(video));
+      
+      let rateColor = "#4caf50";
+      if (video._isRecovering) rateColor = "#ff9800";
+      else if (video.playbackRate < currentSavedSpeed) rateColor = "#2196f3"; // Actively throttling
+
+      const bufColor = buf < 10 ? "#f44336" : (buf < 20 ? "#ff9800" : "#4caf50");
+
+      telemetryText.innerHTML = `Live Speed: <span style="color:${rateColor}">${rate}x</span> | Buffer: <span style="color:${bufColor}">${buf}s</span>`;
+    };
+
+    updateTelemetry();
+    popup._telemetryInterval = setInterval(updateTelemetry, 500);
     // -----------------------
 
     popup.addEventListener("click", (e) => e.stopPropagation());
@@ -318,7 +388,7 @@
     const popupRect = popup.getBoundingClientRect();
 
     const popupWidth = popupRect.width || 320;
-    const popupHeight = popupRect.height || 190; // slightly taller to fit smart row
+    const popupHeight = popupRect.height || 220; // taller to fit smart row and telemetry
 
     let top = triggerRect.top - containerRect.top - popupHeight - POPUP_OFFSET.above;
     let left = triggerRect.left - containerRect.left + triggerRect.width / 2 - popupWidth / 2;
@@ -383,8 +453,11 @@
 
     let isBufferingHold = false;
     const handleBufferUnderrun = () => {
-      // Emergency: if Smart Speed is running, immediately force 1.0x on a stall
-      if (isSmartSpeedEnabled) setVideoSpeed(video, 1.0, false);
+      // Emergency: if Smart Speed is running, immediately force 1.0x on a stall and engage recovery lock
+      if (isSmartSpeedEnabled) {
+        video._isRecovering = true;
+        setVideoSpeed(video, 1.0, false);
+      }
       
       if (video.playbackRate > 1.0 && !video.paused && !isBufferingHold) {
         isBufferingHold = true;
