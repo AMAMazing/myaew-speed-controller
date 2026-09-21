@@ -51,6 +51,9 @@
   let isInternalSpeedChange = false;
   let isSmartSpeedEnabled = false;
 
+  let smartTargetMode = 'speed'; // 'speed' or 'time'
+  let smartTargetTime = ''; // 'HH:MM'
+
   // Load saved states
   try {
     const saved = localStorage.getItem("myaew_playback_speed");
@@ -58,6 +61,12 @@
 
     const smartSaved = localStorage.getItem("myaew_smart_speed_enabled");
     if (smartSaved === "true") isSmartSpeedEnabled = true;
+
+    const savedMode = localStorage.getItem("myaew_smart_mode");
+    if (savedMode) smartTargetMode = savedMode;
+
+    const savedTime = localStorage.getItem("myaew_smart_time");
+    if (savedTime) smartTargetTime = savedTime;
 
     applySpeedToAllVideos(currentSavedSpeed);
   } catch (e) {}
@@ -67,6 +76,30 @@
 
   function formatSpeed(val) {
     return Number(val).toFixed(2) + "x";
+  }
+
+  function calculateTimeBasedTargetRate(video) {
+    if (!video || !isFinite(video.duration) || isNaN(video.currentTime)) return currentSavedSpeed;
+    if (!smartTargetTime) return currentSavedSpeed;
+
+    const now = new Date();
+    const [hours, minutes] = smartTargetTime.split(':').map(Number);
+    let targetDate = new Date();
+    targetDate.setHours(hours, minutes, 0, 0);
+    
+    // If target time has already passed today, assume it's for tomorrow
+    if (targetDate <= now) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+    
+    const realSecRemaining = (targetDate.getTime() - now.getTime()) / 1000;
+    const videoRemaining = video.duration - video.currentTime;
+    
+    if (realSecRemaining > 0 && videoRemaining > 0) {
+      let req = videoRemaining / realSecRemaining;
+      return Math.max(MIN_SPEED, Math.min(MAX_SPEED, req));
+    }
+    return currentSavedSpeed;
   }
 
   // --- SMART AUTO-SPEED ALGORITHM ---
@@ -97,7 +130,12 @@
       video._previousBuffer = buffer;
 
       let currentRate = video.playbackRate;
-      let targetRate = currentSavedSpeed; // Target speed is controlled by the user
+      let targetRate = currentSavedSpeed; 
+      
+      if (smartTargetMode === 'time' && smartTargetTime) {
+        targetRate = calculateTimeBasedTargetRate(video);
+      }
+
       let newRate = currentRate;
       let isRecovering = video._isRecovering || false;
 
@@ -162,8 +200,14 @@
 
     if (isManual) {
       currentSavedSpeed = clamped;
-      // We DO NOT turn off Smart Speed when user adjusts. 
-      // Instead, we let them set their "Target Rate".
+      
+      // If manual adjustment happens while in time mode, auto-switch to speed mode 
+      // since the user wants a specific speed right now.
+      if (isSmartSpeedEnabled && smartTargetMode === 'time') {
+         smartTargetMode = 'speed';
+         try { localStorage.setItem("myaew_smart_mode", "speed"); } catch(e){}
+      }
+      
       try {
         localStorage.setItem("myaew_playback_speed", clamped.toString());
       } catch (e) {}
@@ -185,14 +229,27 @@
   }
 
   function updatePopupUI(popup, currentRate) {
-    // If Smart Speed is ON, the slider/header act as the Target UI.
-    const displaySpeed = isSmartSpeedEnabled ? currentSavedSpeed : currentRate;
+    let displaySpeed = currentRate;
+    let computedTargetRate = currentSavedSpeed;
+
+    if (isSmartSpeedEnabled) {
+      if (smartTargetMode === 'time' && smartTargetTime) {
+         computedTargetRate = calculateTimeBasedTargetRate(popup._video);
+      }
+      displaySpeed = computedTargetRate;
+    }
 
     const header = popup.querySelector(".myaew-speed-popup-header");
     if (header) {
-      header.textContent = isSmartSpeedEnabled 
-        ? "Target: " + formatSpeed(displaySpeed) 
-        : formatSpeed(displaySpeed);
+      if (isSmartSpeedEnabled) {
+         if (smartTargetMode === 'time') {
+           header.textContent = "Req. Target: " + formatSpeed(displaySpeed);
+         } else {
+           header.textContent = "Target: " + formatSpeed(displaySpeed);
+         }
+      } else {
+         header.textContent = formatSpeed(displaySpeed);
+      }
     }
 
     const slider = popup.querySelector(".myaew-speed-slider");
@@ -209,16 +266,36 @@
       else btn.classList.remove("active");
     });
 
-    // Sync the Smart Button UI state
     const smartBtn = popup.querySelector(".myaew-smart-btn");
+    const smartOptions = popup.querySelector(".myaew-smart-options");
+    const modeSpeedBtn = popup.querySelector(".myaew-mode-speed-btn");
+    const modeTimeBtn = popup.querySelector(".myaew-mode-time-btn");
+    const timeRow = popup.querySelector(".myaew-time-row");
+
     if (smartBtn) {
       if (isSmartSpeedEnabled) {
         smartBtn.classList.add("active");
         smartBtn.querySelector('span').textContent = "Smart Auto-Speed: ON";
+        if (smartOptions) smartOptions.style.display = "flex";
       } else {
         smartBtn.classList.remove("active");
         smartBtn.querySelector('span').textContent = "Smart Auto-Speed: OFF";
+        if (smartOptions) smartOptions.style.display = "none";
       }
+    }
+
+    if (modeSpeedBtn && modeTimeBtn) {
+      if (smartTargetMode === 'speed') {
+        modeSpeedBtn.classList.add("active");
+        modeTimeBtn.classList.remove("active");
+      } else {
+        modeTimeBtn.classList.add("active");
+        modeSpeedBtn.classList.remove("active");
+      }
+    }
+
+    if (timeRow) {
+      timeRow.style.display = smartTargetMode === 'time' ? "flex" : "none";
     }
   }
 
@@ -227,6 +304,28 @@
       document.fullscreenElement || document.webkitFullscreenElement ||
       document.mozFullScreenElement || document.msFullscreenElement || document.body
     );
+  }
+
+  function repositionPopup(popup, triggerBtn, container) {
+    const triggerRect = triggerBtn.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+
+    const popupWidth = popupRect.width || 320;
+    const popupHeight = popupRect.height || 280; 
+
+    let top = triggerRect.top - containerRect.top - popupHeight - POPUP_OFFSET.above;
+    let left = triggerRect.left - containerRect.left + triggerRect.width / 2 - popupWidth / 2;
+
+    if (top < 10) top = triggerRect.bottom - containerRect.top + POPUP_OFFSET.below;
+    if (left < 10) left = 10;
+    else if (left + popupWidth > containerRect.width - 10) left = containerRect.width - popupWidth - 10;
+
+    const scrollY = container === document.body ? window.scrollY : container.scrollTop;
+    const scrollX = container === document.body ? window.scrollX : container.scrollLeft;
+
+    popup.style.top = `${top + scrollY}px`;
+    popup.style.left = `${left + scrollX}px`;
   }
 
   function createSpeedPopup(video, triggerBtn) {
@@ -253,8 +352,7 @@
     minusBtn.title = "Decrease speed";
     minusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      // true = Manual change (updates target if smart is on)
-      setVideoSpeed(video, (isSmartSpeedEnabled ? currentSavedSpeed : video.playbackRate) - STEP, true); 
+      setVideoSpeed(video, (isSmartSpeedEnabled && smartTargetMode === 'speed' ? currentSavedSpeed : video.playbackRate) - STEP, true); 
     });
 
     const sliderContainer = document.createElement("div");
@@ -276,7 +374,7 @@
     plusBtn.title = "Increase speed";
     plusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      setVideoSpeed(video, (isSmartSpeedEnabled ? currentSavedSpeed : video.playbackRate) + STEP, true);
+      setVideoSpeed(video, (isSmartSpeedEnabled && smartTargetMode === 'speed' ? currentSavedSpeed : video.playbackRate) + STEP, true);
     });
 
     sliderRow.appendChild(minusBtn);
@@ -311,6 +409,9 @@
     popup.appendChild(presetsRow);
 
     // --- SMART TOGGLE UI ---
+    const smartContainer = document.createElement("div");
+    smartContainer.className = "myaew-smart-container";
+    
     const smartRow = document.createElement("div");
     smartRow.className = "myaew-smart-toggle-row";
     
@@ -333,6 +434,7 @@
       } catch (e) {}
 
       updatePopupUI(popup, video.playbackRate);
+      repositionPopup(popup, triggerBtn, getFullscreenContainer());
 
       if (!isSmartSpeedEnabled) {
         // Revert down to saved manual limit when turned off
@@ -341,7 +443,73 @@
     });
 
     smartRow.appendChild(smartBtn);
-    popup.appendChild(smartRow);
+    smartContainer.appendChild(smartRow);
+    
+    // --- SMART OPTIONS UI ---
+    const smartOptions = document.createElement("div");
+    smartOptions.className = "myaew-smart-options";
+    
+    const modeRow = document.createElement("div");
+    modeRow.className = "myaew-mode-row";
+    const modeLabel = document.createElement("span");
+    modeLabel.textContent = "Target Mode:";
+    
+    const modeToggle = document.createElement("div");
+    modeToggle.className = "myaew-mode-toggle";
+    
+    const modeSpeedBtn = document.createElement("button");
+    modeSpeedBtn.className = "myaew-mode-btn myaew-mode-speed-btn";
+    modeSpeedBtn.textContent = "Speed";
+    
+    const modeTimeBtn = document.createElement("button");
+    modeTimeBtn.className = "myaew-mode-btn myaew-mode-time-btn";
+    modeTimeBtn.textContent = "Time";
+    
+    modeSpeedBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      smartTargetMode = 'speed';
+      try { localStorage.setItem("myaew_smart_mode", "speed"); } catch(e){}
+      updatePopupUI(popup, video.playbackRate);
+      repositionPopup(popup, triggerBtn, getFullscreenContainer());
+    });
+    
+    modeTimeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      smartTargetMode = 'time';
+      try { localStorage.setItem("myaew_smart_mode", "time"); } catch(e){}
+      updatePopupUI(popup, video.playbackRate);
+      repositionPopup(popup, triggerBtn, getFullscreenContainer());
+    });
+    
+    modeToggle.appendChild(modeSpeedBtn);
+    modeToggle.appendChild(modeTimeBtn);
+    modeRow.appendChild(modeLabel);
+    modeRow.appendChild(modeToggle);
+    smartOptions.appendChild(modeRow);
+    
+    const timeRow = document.createElement("div");
+    timeRow.className = "myaew-time-row";
+    const timeLabel = document.createElement("span");
+    timeLabel.textContent = "Finish At:";
+    
+    const timeInput = document.createElement("input");
+    timeInput.type = "time";
+    timeInput.className = "myaew-time-input";
+    timeInput.value = smartTargetTime;
+    
+    timeInput.addEventListener("change", (e) => {
+      smartTargetTime = e.target.value;
+      try { localStorage.setItem("myaew_smart_time", smartTargetTime); } catch(e){}
+      updatePopupUI(popup, video.playbackRate);
+    });
+    timeInput.addEventListener("click", (e) => e.stopPropagation());
+    
+    timeRow.appendChild(timeLabel);
+    timeRow.appendChild(timeInput);
+    smartOptions.appendChild(timeRow);
+    
+    smartContainer.appendChild(smartOptions);
+    popup.appendChild(smartContainer);
     
     // --- LIVE TELEMETRY UI ---
     const telemetryRow = document.createElement("div");
@@ -361,13 +529,20 @@
         return;
       }
       
+      // Keep UI synced live with time fluctuations if in Time mode
+      if (smartTargetMode === 'time') {
+        updatePopupUI(popup, video.playbackRate);
+      }
+      
       telemetryRow.style.display = 'block';
       const rate = video.playbackRate.toFixed(2);
       const buf = Math.round(getBufferAhead(video));
       
       let rateColor = "#4caf50";
+      const targetRate = smartTargetMode === 'time' ? calculateTimeBasedTargetRate(video) : currentSavedSpeed;
+      
       if (video._isRecovering) rateColor = "#ff9800";
-      else if (video.playbackRate < currentSavedSpeed) rateColor = "#2196f3"; // Actively throttling
+      else if (video.playbackRate < targetRate) rateColor = "#2196f3"; // Actively throttling
 
       const bufColor = buf < 10 ? "#f44336" : (buf < 20 ? "#ff9800" : "#4caf50");
 
@@ -382,29 +557,10 @@
 
     const container = getFullscreenContainer();
     container.appendChild(popup);
-
-    const triggerRect = triggerBtn.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const popupRect = popup.getBoundingClientRect();
-
-    const popupWidth = popupRect.width || 320;
-    const popupHeight = popupRect.height || 220; // taller to fit smart row and telemetry
-
-    let top = triggerRect.top - containerRect.top - popupHeight - POPUP_OFFSET.above;
-    let left = triggerRect.left - containerRect.left + triggerRect.width / 2 - popupWidth / 2;
-
-    if (top < 10) top = triggerRect.bottom - containerRect.top + POPUP_OFFSET.below;
-    if (left < 10) left = 10;
-    else if (left + popupWidth > containerRect.width - 10) left = containerRect.width - popupWidth - 10;
-
-    const scrollY = container === document.body ? window.scrollY : container.scrollTop;
-    const scrollX = container === document.body ? window.scrollX : container.scrollLeft;
-
-    popup.style.top = `${top + scrollY}px`;
-    popup.style.left = `${left + scrollX}px`;
-
     activePopup = popup;
+
     updatePopupUI(popup, currentSpeed);
+    repositionPopup(popup, triggerBtn, container);
   }
 
   function placeSpeedButton(video, speedBtn) {
