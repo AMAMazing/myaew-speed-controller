@@ -32,9 +32,9 @@
   setInterval(applyBufferConfig, 3000);
 
   // --- 2. EXTENSION SPEED LOGIC ---
-  const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0];
+  const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
   const MIN_SPEED = 0.25;
-  const MAX_SPEED = 10.0;
+  const MAX_SPEED = 4.0;
   const STEP = 0.05;
 
   const POPUP_OFFSET = { above: 24, below: 12 };
@@ -102,7 +102,7 @@
     return currentSavedSpeed;
   }
 
-  // --- SMART AUTO-SPEED ALGORITHM ---
+  // --- SMART AUTO-SPEED ALGORITHM (PROPORTIONAL CONTROL) ---
   function getBufferAhead(video) {
     let bufferAhead = 0;
     const currentTime = video.currentTime;
@@ -123,12 +123,6 @@
       if (video.paused || video.readyState === 0) return;
 
       const buffer = getBufferAhead(video);
-      
-      // Calculate Rate of Change (Predictive Braking)
-      const prevBuffer = video._previousBuffer !== undefined ? video._previousBuffer : buffer;
-      const bufferDelta = buffer - prevBuffer;
-      video._previousBuffer = buffer;
-
       let currentRate = video.playbackRate;
       let targetRate = currentSavedSpeed; 
       
@@ -136,49 +130,37 @@
         targetRate = calculateTimeBasedTargetRate(video);
       }
 
-      let newRate = currentRate;
-      let isRecovering = video._isRecovering || false;
+      // Proportional Stabilizer Bounds
+      const SAFE_BUFFER_MAX = 90; // Seconds of buffer required to reach 100% of target speed
+      const SAFE_BUFFER_MIN = 15; // Seconds of buffer where speed drops to 1.0x
 
-      // 1. Seamless 1.0x Recovery Lock
-      if (isRecovering) {
-        if (buffer > 25) {
-          isRecovering = false; // Release the lock
-        } else {
-          newRate = 1.0; // Stay locked
-        }
+      let minAllowedSpeed = Math.min(1.0, targetRate);
+      let newRate;
+
+      if (buffer >= SAFE_BUFFER_MAX) {
+        newRate = targetRate; // Plenty of buffer, full speed ahead
+      } else if (buffer <= SAFE_BUFFER_MIN) {
+        newRate = minAllowedSpeed; // Buffer critically low, scale back to 1x to recover
+      } else {
+        // Smoothly interpolate speed between Min and Max safe buffers (Stabilization mechanism)
+        const bufferFactor = (buffer - SAFE_BUFFER_MIN) / (SAFE_BUFFER_MAX - SAFE_BUFFER_MIN);
+        newRate = minAllowedSpeed + bufferFactor * (targetRate - minAllowedSpeed);
       }
 
-      // 2. Main Speed Logic
-      if (!isRecovering) {
-        if (buffer < 5) {
-          newRate = 1.0; // Critical stall emergency
-          isRecovering = true;
-        } else if (buffer < 10 || (buffer < 15 && bufferDelta < -2)) {
-          newRate -= 0.25; // Shrinking fast or critical: Brake hard
-        } else if (buffer < 20 || (buffer < 25 && bufferDelta < -1)) {
-          newRate -= 0.10; // Dropping out of sweet spot: Brake gently
-        } else if (buffer > 40 && bufferDelta >= 0) {
-          newRate += 0.10; // Massive buffer: Speed up fast towards target
-        } else if (buffer > 25 && bufferDelta > 1) {
-          newRate += 0.05; // Good buffer recovering: Speed up gently
-        }
+      // Final clamps for safety
+      newRate = Math.max(MIN_SPEED, Math.min(MAX_SPEED, newRate));
 
-        // Auto-Throttling (Target Speed)
-        newRate = Math.min(newRate, targetRate);
-        // Don't auto-slow below 1.0x unless target is lower
-        newRate = Math.max(Math.min(1.0, targetRate), Math.min(MAX_SPEED, newRate));
-      }
-
-      video._isRecovering = isRecovering;
+      // Smooth out small decimals (round to nearest 0.05) to prevent constant audio-warble 
+      newRate = Math.round(newRate * 20) / 20;
 
       // Apply if there is a meaningful change
-      if (Math.abs(newRate - currentRate) >= 0.01) {
-        setVideoSpeed(video, newRate, false); // false = this is an automated change
+      if (Math.abs(newRate - currentRate) >= 0.05) {
+        setVideoSpeed(video, newRate, false); 
       }
     });
   }
 
-  // Run the smart loop every 2500ms (Debouncing Audio Warble)
+  // Run the smart loop every 2500ms 
   setInterval(manageSmartSpeed, 2500);
   // ----------------------------------
 
@@ -202,7 +184,6 @@
       currentSavedSpeed = clamped;
       
       // If manual adjustment happens while in time mode, auto-switch to speed mode 
-      // since the user wants a specific speed right now.
       if (isSmartSpeedEnabled && smartTargetMode === 'time') {
          smartTargetMode = 'speed';
          try { localStorage.setItem("myaew_smart_mode", "speed"); } catch(e){}
@@ -541,8 +522,8 @@
       let rateColor = "#4caf50";
       const targetRate = smartTargetMode === 'time' ? calculateTimeBasedTargetRate(video) : currentSavedSpeed;
       
-      if (video._isRecovering) rateColor = "#ff9800";
-      else if (video.playbackRate < targetRate) rateColor = "#2196f3"; // Actively throttling
+      if (buf < 20) rateColor = "#ff9800"; // Lower buffer, speed constrained
+      else if (video.playbackRate < targetRate - 0.05) rateColor = "#2196f3"; // Actively stabilizing (throttling)
 
       const bufColor = buf < 10 ? "#f44336" : (buf < 20 ? "#ff9800" : "#4caf50");
 
@@ -609,9 +590,8 @@
 
     let isBufferingHold = false;
     const handleBufferUnderrun = () => {
-      // Emergency: if Smart Speed is running, immediately force 1.0x on a stall and engage recovery lock
+      // Emergency: if Smart Speed is running, immediately force 1.0x on a stall 
       if (isSmartSpeedEnabled) {
-        video._isRecovering = true;
         setVideoSpeed(video, 1.0, false);
       }
       
@@ -645,7 +625,11 @@
     });
 
     video.addEventListener("play", () => {
-      if (!isSmartSpeedEnabled && currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
+      if (isSmartSpeedEnabled) {
+        // Trigger Smart Speed calculation instantly after unpausing
+        // This stops the video from sticking to 1.0x if the buffer is already full!
+        setTimeout(manageSmartSpeed, 50); 
+      } else if (currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
         video.playbackRate = currentSavedSpeed;
       }
     });
