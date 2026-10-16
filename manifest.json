@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MyAEW Speed Controller",
+  "name": "MyAEW Plus - Player UI & Speed Controller",
   "version": "1.0.0",
-  "description": "Native, intuitive video playback speed controller designed specifically for MyAEW.",
+  "description": "Complete enhancement suite for MyAEW: cinematic theater mode, integrated top player bar, playback speed controller & smart buffer booster.",
   "permissions": [
     "storage"
   ],
@@ -28,7 +28,10 @@
         "*://myaew.net/*",
         "*://myaew.edu.au/*"
       ],
-      "css": ["content.css"],
+      "css": [
+        "player.css",
+        "speed-controller.css"
+      ],
       "run_at": "document_end",
       "all_frames": true
     },
@@ -43,7 +46,10 @@
         "*://myaew.net/*",
         "*://myaew.edu.au/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "player.js",
+        "speed-controller.js"
+      ],
       "world": "MAIN",
       "run_at": "document_idle",
       "all_frames": true
