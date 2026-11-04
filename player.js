@@ -11,6 +11,9 @@
   let lastVideoPath = "";
 
   const INACTIVITY_DELAY = 3500;
+  const isTouchDevice = () =>
+    window.matchMedia("(hover: none) and (pointer: coarse)").matches ||
+    "ontouchstart" in window;
 
   function isVideoRoute() {
     return window.location.pathname.includes("/video");
@@ -47,13 +50,10 @@
   function isTimestamp(str) {
     if (!str) return true;
     const clean = str.trim();
-    // Count alphabetic characters (A-Z, a-z)
     const letters = clean.match(/[a-zA-Z]/g);
-    // Real show titles like "AEW Dynamite" or "AEW Collision" have multiple letters
     if (!letters || letters.length < 2) {
       return true;
     }
-    // Matches pure timestamp e.g. "02:47:46" or "02:47:46 / 03:29:08"
     if (/^(\d{1,2}:)?\d{1,2}:\d{2}(\s*[\/\-]\s*(\d{1,2}:)?\d{1,2}:\d{2})?$/.test(clean) && letters.length < 3) {
       return true;
     }
@@ -63,7 +63,6 @@
   function cleanTitle(raw) {
     if (!raw) return "";
     let text = raw.trim();
-    // Strip leading/trailing dividers, pipes, dashes
     text = text.replace(/^[\s|–—\-/]+/, "").replace(/[\s|–—\-/]+$/, "").trim();
     text = text.replace(/\s*[-–—|]\s*MyAEW.*$/i, "").trim();
     text = text.replace(/^MyAEW\s*[-–—|]\s*/i, "").trim();
@@ -150,12 +149,10 @@
       }
     }
 
-    // 5. If title was previously detected on page, keep displaying it (essential in fullscreen)
     if (cachedShowTitle) {
       return cachedShowTitle;
     }
 
-    // 6. Check document.title
     const docTitle = cleanTitle(document.title);
     if (docTitle && docTitle.toUpperCase() !== "MYAEW" && !isTimestamp(docTitle) && docTitle.length > 2) {
       cachedShowTitle = docTitle;
@@ -165,8 +162,38 @@
     return "AEW";
   }
 
+  // Syncs title and playback actions with Android PiP & Notification MediaSession
+  function updateMediaSession(title) {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || "AEW",
+        artist: "MyAEW",
+        album: "All Elite Wrestling"
+      });
+
+      const getActiveVideo = () => document.querySelector("#videoPlayer video, .bitmovinplayer-container video, video");
+
+      navigator.mediaSession.setActionHandler("play", () => {
+        const v = getActiveVideo();
+        if (v) v.play().catch(() => {});
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        const v = getActiveVideo();
+        if (v) v.pause();
+      });
+      navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+        const v = getActiveVideo();
+        if (v) v.currentTime = Math.max(0, v.currentTime - (details.seekOffset || 10));
+      });
+      navigator.mediaSession.setActionHandler("seekforward", (details) => {
+        const v = getActiveVideo();
+        if (v) v.currentTime = Math.min(v.duration || Infinity, v.currentTime + (details.seekOffset || 10));
+      });
+    } catch (e) {}
+  }
+
   function createTopOverlay(videoPlayer) {
-    // Remove any orphaned overlays in other containers if any exist
     const allOverlays = document.querySelectorAll(".myaew-top-overlay");
     let overlay = null;
     allOverlays.forEach((el) => {
@@ -206,25 +233,23 @@
       titleEl.className = "myaew-show-title";
       leftSection.appendChild(titleEl);
     } else {
-      // Ensure titleEl is positioned at the end of leftSection (after back button and logo)
       if (titleEl.parentElement === leftSection && leftSection.lastElementChild !== titleEl) {
         leftSection.appendChild(titleEl);
       }
     }
 
-    // Clean up any extra title elements if multiple exist
     const allTitles = leftSection.querySelectorAll(".myaew-show-title");
     for (let i = 1; i < allTitles.length; i++) {
       allTitles[i].remove();
     }
 
     const currentTitle = getShowTitle();
-    // Do not overwrite an already populated legitimate show title with generic fallback "AEW"
     if (currentTitle) {
       if (currentTitle !== "AEW" || !titleEl.textContent || titleEl.textContent === "AEW") {
         if (titleEl.textContent !== currentTitle) {
           titleEl.textContent = currentTitle;
           titleEl.title = currentTitle;
+          updateMediaSession(currentTitle);
         }
       }
     }
@@ -237,7 +262,6 @@
 
     const originalTopBar = document.querySelector("#primaryViewer > .relative.flex.flex-row.items-center");
     if (!originalTopBar) {
-      // Still safeguard leftSection from existing duplicates even if topBar is absent
       const backBtns = leftSection.querySelectorAll(".myaew-back-btn");
       for (let i = 1; i < backBtns.length; i++) backBtns[i].remove();
       const logos = leftSection.querySelectorAll(".myaew-logo");
@@ -245,7 +269,7 @@
       return;
     }
 
-    // 1. Back button: Adopt or replace existing button without duplication
+    // 1. Back button
     const backButton = originalTopBar.querySelector(".top-bar-contents button");
     if (backButton && backButton.parentElement !== leftSection) {
       backButton.classList.add("myaew-back-btn");
@@ -256,13 +280,12 @@
         leftSection.insertBefore(backButton, leftSection.firstChild);
       }
     }
-    // Remove any duplicate back buttons
     const allBackBtns = leftSection.querySelectorAll(".myaew-back-btn");
     for (let i = 1; i < allBackBtns.length; i++) {
       allBackBtns[i].remove();
     }
 
-    // 2. AEW Logo: Adopt or replace existing logo without duplication
+    // 2. AEW Logo
     const originalLogo = originalTopBar.querySelector(".top-bar-contents .logo");
     if (originalLogo && originalLogo.parentElement !== leftSection) {
       originalLogo.classList.add("myaew-logo");
@@ -280,7 +303,6 @@
         }
       }
     }
-    // Remove any duplicate logos
     const allLogos = leftSection.querySelectorAll(".myaew-logo");
     for (let i = 1; i < allLogos.length; i++) {
       allLogos[i].remove();
@@ -289,7 +311,7 @@
     // 3. Show Title
     updateTitle(overlay);
 
-    // 4. Stream selector: Adopt or replace without duplication
+    // 4. Stream selector
     const streamSelector = originalTopBar.querySelector(".nav-pip-selector");
     if (streamSelector && streamSelector.parentElement !== rightSection) {
       const existingStream = rightSection.querySelector(".nav-pip-selector");
@@ -299,13 +321,12 @@
         rightSection.insertBefore(streamSelector, rightSection.firstChild);
       }
     }
-    // Remove any duplicate stream selectors
     const allStreams = rightSection.querySelectorAll(".nav-pip-selector");
     for (let i = 1; i < allStreams.length; i++) {
       allStreams[i].remove();
     }
 
-    // 5. Help Circle button: Adopt or replace without duplication
+    // 5. Help Circle button
     const helpBtn = originalTopBar.querySelector(".self-end button") || originalTopBar.querySelector("button img[alt*='Help']");
     const helpContainer = helpBtn ? (helpBtn.closest("button") || helpBtn) : null;
     if (helpContainer && helpContainer.parentElement !== rightSection) {
@@ -317,7 +338,6 @@
         rightSection.appendChild(helpContainer);
       }
     }
-    // Remove any duplicate help buttons
     const allHelp = rightSection.querySelectorAll(".myaew-help-btn");
     for (let i = 1; i < allHelp.length; i++) {
       allHelp[i].remove();
@@ -340,7 +360,8 @@
     const qualityMenuOpen = document.querySelector(".menu-wrap [style*='display: flex'], .menu-wrap [style*='display: block']");
     const streamMenuOpen = !isFullscreen() && document.querySelector(".nav-pip-selector [style*='display: flex'], .nav-pip-selector [style*='display: block']");
 
-    if (isMenuOpen || hasOpenPopup || qualityMenuOpen || streamMenuOpen) {
+    // Never hide controls while in Picture-in-Picture or when a popup is open
+    if (isMenuOpen || hasOpenPopup || qualityMenuOpen || streamMenuOpen || document.pictureInPictureElement) {
       return;
     }
 
@@ -362,26 +383,61 @@
     if (container._inactivityAttached) return;
     container._inactivityAttached = true;
 
-    container.addEventListener("mousemove", () => resetInactivity(container));
-    container.addEventListener("pointerdown", () => resetInactivity(container));
-    container.addEventListener("touchstart", () => resetInactivity(container), { passive: true });
+    // Desktop Mouse Movement
+    container.addEventListener("mousemove", (e) => {
+      if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return;
+      if (!isTouchDevice()) resetInactivity(container);
+    });
+
+    // Touch vs Mouse Pointer handling
+    container.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch" || isTouchDevice()) {
+        const inControls = e.target.closest(".myaew-top-overlay, .player-controls, .myaew-speed-popup, button, input");
+        if (inControls) {
+          // Interacting with a control button on touch: keep visible & restart timer
+          isMenuOpen = false;
+          resetInactivity(container);
+        } else {
+          // Tapped empty video area on Android: toggle controls visibility cleanly
+          if (container.classList.contains("myaew-controls-visible")) {
+            clearTimeout(inactivityTimer);
+            container.classList.remove("myaew-controls-visible");
+            container.classList.add("myaew-controls-hidden");
+          } else {
+            resetInactivity(container);
+          }
+        }
+      } else {
+        resetInactivity(container);
+      }
+    });
 
     const video = container.querySelector("video");
-    if (video) {
+    if (video && !video._cinemaListenersAttached) {
+      video._cinemaListenersAttached = true;
       video.addEventListener("play", () => resetInactivity(container));
       video.addEventListener("pause", () => showControls(container));
+      video.addEventListener("enterpictureinpicture", () => {
+        isMenuOpen = false;
+        showControls(container);
+      });
+      video.addEventListener("leavepictureinpicture", () => {
+        resetInactivity(container);
+      });
     }
 
     const topOverlayEl = container.querySelector(".myaew-top-overlay");
     const bottomControlsEl = container.querySelector(".player-controls");
 
     const keepVisible = () => {
+      if (isTouchDevice()) return; // Prevent simulated touch mouseenter from permanently locking controls
       isMenuOpen = true;
       showControls(container);
       clearTimeout(inactivityTimer);
     };
 
     const allowHide = () => {
+      if (isTouchDevice()) return;
       isMenuOpen = false;
       resetInactivity(container);
     };
@@ -401,20 +457,31 @@
     const fsBtn = container.querySelector("button[aria-label='Enter Fullscreen'], button[aria-label='Exit Fullscreen']");
     if (fsBtn && !fsBtn._enhancedFS) {
       fsBtn._enhancedFS = true;
-      fsBtn.addEventListener("click", () => {
+      fsBtn.addEventListener("click", async () => {
         if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const root = document.documentElement;
-          if (root.requestFullscreen) {
-            root.requestFullscreen().catch(() => {});
-          } else if (root.webkitRequestFullscreen) {
-            root.webkitRequestFullscreen();
-          }
+          try {
+            if (root.requestFullscreen) {
+              await root.requestFullscreen();
+            } else if (root.webkitRequestFullscreen) {
+              root.webkitRequestFullscreen();
+            }
+            // Automatically lock to landscape on Vivaldi Android when entering fullscreen
+            if (isTouchDevice() && screen.orientation && screen.orientation.lock) {
+              screen.orientation.lock("landscape").catch(() => {});
+            }
+          } catch (e) {}
         } else {
-          if (document.exitFullscreen) {
-            document.exitFullscreen().catch(() => {});
-          } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-          }
+          try {
+            if (document.exitFullscreen) {
+              await document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+              document.webkitExitFullscreen();
+            }
+            if (isTouchDevice() && screen.orientation && screen.orientation.unlock) {
+              screen.orientation.unlock();
+            }
+          } catch (e) {}
         }
       }, true);
     }
@@ -485,6 +552,10 @@
 
   // Fullscreen change listeners
   const onFullscreenChange = () => {
+    const fs = isFullscreen();
+    if (!fs && isTouchDevice() && screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (e) {}
+    }
     updateFullscreenState();
     handleRouteAndPlayer();
     setTimeout(() => {

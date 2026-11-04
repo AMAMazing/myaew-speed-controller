@@ -1,6 +1,7 @@
-/* MyAEW Speed Controller Styles */
+/* MyAEW Speed Controller & PiP Styles */
 
-.myaew-speed-btn {
+.myaew-speed-btn,
+.myaew-pip-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -16,11 +17,19 @@
   user-select: none;
   transition: all 0.2s ease;
   transform: scale(1.5);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.myaew-speed-btn:hover {
+.myaew-speed-btn:hover,
+.myaew-pip-btn:hover {
   border-color: rgba(255, 255, 255, 0.4);
   transform: scale(1.55);
+}
+
+.myaew-pip-btn.pip-active svg {
+  fill: #4caf50 !important;
+  filter: drop-shadow(0 0 6px rgba(76, 175, 80, 0.7));
 }
 
 .myaew-speed-btn-floating {
@@ -29,16 +38,25 @@
   right: 14px;
 }
 
+.myaew-pip-btn-floating {
+  position: absolute;
+  top: 14px;
+  right: 60px;
+}
+
 /* Speed Popup matching YouTube-like UI */
 .myaew-speed-popup {
   position: absolute;
-  background: rgba(24, 24, 24, 0.92);
+  background: rgba(24, 24, 24, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   padding: 16px 20px 14px;
   width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
   box-sizing: border-box;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   z-index: 2147483645;
@@ -46,6 +64,7 @@
   color: #ffffff;
   user-select: none;
   animation: myaew-fade-in 0.15s ease-out;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @keyframes myaew-fade-in {
@@ -94,6 +113,7 @@
   transition: background 0.15s ease, transform 0.1s ease;
   line-height: 1;
   padding: 0;
+  touch-action: manipulation;
 }
 
 .myaew-circle-btn:hover {
@@ -109,6 +129,7 @@
   display: flex;
   align-items: center;
   position: relative;
+  padding: 8px 0;
 }
 
 .myaew-speed-slider {
@@ -121,6 +142,7 @@
   outline: none;
   margin: 0;
   cursor: pointer;
+  touch-action: none;
 }
 
 .myaew-speed-slider::-webkit-slider-thumb {
@@ -176,6 +198,7 @@
   text-align: center;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.1s ease;
+  touch-action: manipulation;
 }
 
 .myaew-preset-btn:hover {
@@ -230,6 +253,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  touch-action: manipulation;
 }
 
 .myaew-smart-btn:hover {
@@ -301,6 +325,7 @@
   cursor: pointer;
   transition: all 0.2s;
   font-weight: 600;
+  touch-action: manipulation;
 }
 
 .myaew-mode-btn:hover {
@@ -357,4 +382,34 @@
 
 .myaew-telemetry-text span {
   font-weight: bold;
+}
+
+/* Mobile & Vivaldi Android Responsive Popup */
+@media (max-width: 640px), (max-height: 500px) and (hover: none) {
+  .myaew-speed-btn,
+  .myaew-pip-btn {
+    transform: scale(1.25);
+  }
+  .myaew-speed-btn:hover,
+  .myaew-pip-btn:hover {
+    transform: scale(1.3);
+  }
+  .myaew-speed-slider::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+  }
+  .myaew-speed-popup {
+    padding: 14px 16px 12px;
+  }
+  .myaew-speed-popup-header {
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+  .myaew-speed-slider-row {
+    margin-bottom: 12px;
+  }
+  .myaew-smart-toggle-row {
+    margin-top: 12px;
+    padding-top: 10px;
+  }
 }

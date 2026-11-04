@@ -31,7 +31,7 @@
   applyBufferConfig();
   setInterval(applyBufferConfig, 3000);
 
-  // --- 2. EXTENSION SPEED LOGIC ---
+  // --- 2. EXTENSION SPEED & PIP LOGIC ---
   const PRESETS = [1.0, 1.25, 1.5, 2.0, 3.0, 4.0];
   const MIN_SPEED = 0.25;
   const MAX_SPEED = 4.0;
@@ -45,6 +45,12 @@
     </svg>
   `;
 
+  const PIP_SVG_ICON = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" class="h-5 sm:h-6 transform-gpu transition-all duration-200 z-10 hover:scale-110">
+      <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
+    </svg>
+  `;
+
   const TRANSPARENT_BTN_STYLE = "background: transparent !important; border: none !important; box-shadow: none !important; outline: none !important; padding: 0 !important; border-radius: 0 !important;";
 
   let currentSavedSpeed = 1.0;
@@ -53,6 +59,10 @@
 
   let smartTargetMode = 'speed'; // 'speed' or 'time'
   let smartTargetTime = ''; // 'HH:MM'
+
+  const isMobileOrShortScreen = () =>
+    window.innerWidth <= 640 ||
+    (window.innerHeight <= 500 && window.matchMedia("(hover: none)").matches);
 
   // Load saved states
   try {
@@ -142,7 +152,7 @@
       } else if (buffer <= SAFE_BUFFER_MIN) {
         newRate = minAllowedSpeed; // Buffer critically low, scale back to 1x to recover
       } else {
-        // Smoothly interpolate speed between Min and Max safe buffers (Stabilization mechanism)
+        // Smoothly interpolate speed between Min and Max safe buffers
         const bufferFactor = (buffer - SAFE_BUFFER_MIN) / (SAFE_BUFFER_MAX - SAFE_BUFFER_MIN);
         newRate = minAllowedSpeed + bufferFactor * (targetRate - minAllowedSpeed);
       }
@@ -150,7 +160,7 @@
       // Final clamps for safety
       newRate = Math.max(MIN_SPEED, Math.min(MAX_SPEED, newRate));
 
-      // Smooth out small decimals (round to nearest 0.05) to prevent constant audio-warble 
+      // Smooth out small decimals (round to nearest 0.05) to prevent constant audio-warble
       newRate = Math.round(newRate * 20) / 20;
 
       // Apply if there is a meaningful change
@@ -160,9 +170,8 @@
     });
   }
 
-  // Run the smart loop every 2500ms 
+  // Run the smart loop every 2500ms (also runs while in Picture-in-Picture)
   setInterval(manageSmartSpeed, 2500);
-  // ----------------------------------
 
   function applySpeedToAllVideos(speed) {
     if (isSmartSpeedEnabled) return; // Don't enforce static speeds if smart is on
@@ -183,7 +192,7 @@
     if (isManual) {
       currentSavedSpeed = clamped;
       
-      // If manual adjustment happens while in time mode, auto-switch to speed mode 
+      // If manual adjustment happens while in time mode, auto-switch to speed mode
       if (isSmartSpeedEnabled && smartTargetMode === 'time') {
          smartTargetMode = 'speed';
          try { localStorage.setItem("myaew_smart_mode", "speed"); } catch(e){}
@@ -288,13 +297,23 @@
   }
 
   function repositionPopup(popup, triggerBtn, container) {
-    const triggerRect = triggerBtn.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
     const popupRect = popup.getBoundingClientRect();
 
     const popupWidth = popupRect.width || 320;
-    const popupHeight = popupRect.height || 280; 
+    const popupHeight = popupRect.height || 280;
 
+    // Mobile / Vivaldi Android: Center popup neatly so it never clips off-screen
+    if (isMobileOrShortScreen()) {
+      const top = Math.max(12, (containerRect.height - popupHeight) / 2);
+      const left = Math.max(12, (containerRect.width - popupWidth) / 2);
+      popup.style.top = `${top}px`;
+      popup.style.left = `${left}px`;
+      return;
+    }
+
+    // Desktop positioning (100% original behavior)
+    const triggerRect = triggerBtn.getBoundingClientRect();
     let top = triggerRect.top - containerRect.top - popupHeight - POPUP_OFFSET.above;
     let left = triggerRect.left - containerRect.left + triggerRect.width / 2 - popupWidth / 2;
 
@@ -418,7 +437,6 @@
       repositionPopup(popup, triggerBtn, getFullscreenContainer());
 
       if (!isSmartSpeedEnabled) {
-        // Revert down to saved manual limit when turned off
         setVideoSpeed(video, currentSavedSpeed, true);
       }
     });
@@ -510,7 +528,6 @@
         return;
       }
       
-      // Keep UI synced live with time fluctuations if in Time mode
       if (smartTargetMode === 'time') {
         updatePopupUI(popup, video.playbackRate);
       }
@@ -522,8 +539,8 @@
       let rateColor = "#4caf50";
       const targetRate = smartTargetMode === 'time' ? calculateTimeBasedTargetRate(video) : currentSavedSpeed;
       
-      if (buf < 20) rateColor = "#ff9800"; // Lower buffer, speed constrained
-      else if (video.playbackRate < targetRate - 0.05) rateColor = "#2196f3"; // Actively stabilizing (throttling)
+      if (buf < 20) rateColor = "#ff9800";
+      else if (video.playbackRate < targetRate - 0.05) rateColor = "#2196f3";
 
       const bufColor = buf < 10 ? "#f44336" : (buf < 20 ? "#ff9800" : "#4caf50");
 
@@ -532,9 +549,9 @@
 
     updateTelemetry();
     popup._telemetryInterval = setInterval(updateTelemetry, 500);
-    // -----------------------
 
     popup.addEventListener("click", (e) => e.stopPropagation());
+    popup.addEventListener("pointerdown", (e) => e.stopPropagation());
 
     const container = getFullscreenContainer();
     container.appendChild(popup);
@@ -544,7 +561,31 @@
     repositionPopup(popup, triggerBtn, container);
   }
 
-  function placeSpeedButton(video, speedBtn) {
+  // Unlocks Bitmovin's PiP restrictions so both Chrome's PiP Extension and Native PiP work
+  function enableVideoPiPCompatibility(video) {
+    if (video.hasAttribute("disablePictureInPicture")) {
+      video.removeAttribute("disablePictureInPicture");
+    }
+    if (video.disablePictureInPicture) {
+      video.disablePictureInPicture = false;
+    }
+  }
+
+  async function togglePictureInPicture(video) {
+    enableVideoPiPCompatibility(video);
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (typeof video.requestPictureInPicture === "function") {
+        await video.requestPictureInPicture();
+      } else if (typeof video.webkitSetPresentationMode === "function") {
+        const mode = video.webkitPresentationMode === "picture-in-picture" ? "inline" : "picture-in-picture";
+        video.webkitSetPresentationMode(mode);
+      }
+    } catch (e) {}
+  }
+
+  function placeControlButtons(video, speedBtn, pipBtn) {
     const rightSideControls = document.querySelector(".player-controls .right-side");
     if (rightSideControls) {
       if (speedBtn.parentElement !== rightSideControls) {
@@ -552,22 +593,32 @@
         speedBtn.style.cssText = TRANSPARENT_BTN_STYLE;
         rightSideControls.insertBefore(speedBtn, rightSideControls.firstChild);
       }
+      if (pipBtn && pipBtn.parentElement !== rightSideControls) {
+        pipBtn.className = "myaew-pip-btn relative flex w-8 h-8 flex-col items-center justify-center cursor-pointer";
+        pipBtn.style.cssText = TRANSPARENT_BTN_STYLE;
+        if (document.pictureInPictureElement === video) pipBtn.classList.add("pip-active");
+        rightSideControls.insertBefore(pipBtn, speedBtn.nextSibling);
+      }
     } else {
+      const parent = video.parentElement || video.parentNode || document.body;
+      if (parent && parent !== document.body && window.getComputedStyle(parent).position === "static") {
+        parent.style.position = "relative";
+      }
       if (!speedBtn.parentElement) {
         speedBtn.className = "myaew-speed-btn myaew-speed-btn-floating";
         speedBtn.style.cssText = TRANSPARENT_BTN_STYLE;
-        const parent = video.parentElement || video.parentNode;
-        if (parent) {
-          if (window.getComputedStyle(parent).position === "static") parent.style.position = "relative";
-          parent.appendChild(speedBtn);
-        } else {
-          document.body.appendChild(speedBtn);
-        }
+        parent.appendChild(speedBtn);
+      }
+      if (pipBtn && !pipBtn.parentElement) {
+        pipBtn.className = "myaew-pip-btn myaew-pip-btn-floating";
+        pipBtn.style.cssText = TRANSPARENT_BTN_STYLE;
+        parent.appendChild(pipBtn);
       }
     }
   }
 
   function setupVideoController(video) {
+    enableVideoPiPCompatibility(video);
     if (processedVideos.has(video)) return;
     processedVideos.add(video);
 
@@ -575,6 +626,7 @@
       video.playbackRate = currentSavedSpeed;
     }
 
+    // 1. Speed Button
     const speedBtn = document.createElement("button");
     speedBtn.innerHTML = SVG_ICON;
     speedBtn.title = "Change Playback Speed";
@@ -586,11 +638,34 @@
       else createSpeedPopup(video, speedBtn);
     });
 
-    placeSpeedButton(video, speedBtn);
+    // 2. Picture-in-Picture Button (Works with or without Chrome's PiP Extension)
+    let pipBtn = null;
+    if (document.pictureInPictureEnabled || typeof video.requestPictureInPicture === "function") {
+      pipBtn = document.createElement("button");
+      pipBtn.innerHTML = PIP_SVG_ICON;
+      pipBtn.title = "Picture-in-Picture";
+      video._pipBtn = pipBtn;
+
+      pipBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closePopup();
+        togglePictureInPicture(video);
+      });
+
+      video.addEventListener("enterpictureinpicture", () => {
+        pipBtn.classList.add("pip-active");
+        closePopup();
+      });
+
+      video.addEventListener("leavepictureinpicture", () => {
+        pipBtn.classList.remove("pip-active");
+      });
+    }
+
+    placeControlButtons(video, speedBtn, pipBtn);
 
     let isBufferingHold = false;
     const handleBufferUnderrun = () => {
-      // Emergency: if Smart Speed is running, immediately force 1.0x on a stall 
       if (isSmartSpeedEnabled) {
         setVideoSpeed(video, 1.0, false);
       }
@@ -612,7 +687,6 @@
       if (isInternalSpeedChange) return;
       clearTimeout(rateDebounce);
       rateDebounce = setTimeout(() => {
-        // Enforce static saved speed ONLY if Smart Auto-speed is disabled
         if (!isSmartSpeedEnabled && currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
           isInternalSpeedChange = true;
           video.playbackRate = currentSavedSpeed;
@@ -625,8 +699,8 @@
     });
 
     video.addEventListener("play", () => {
+      enableVideoPiPCompatibility(video);
       if (isSmartSpeedEnabled) {
-        // Trigger Smart Speed calculation instantly after unpausing
         setTimeout(manageSmartSpeed, 50); 
       } else if (currentSavedSpeed && Math.abs(video.playbackRate - currentSavedSpeed) > 0.01) {
         video.playbackRate = currentSavedSpeed;
@@ -637,8 +711,9 @@
   function scanAndAttachVideos() {
     const videos = document.querySelectorAll("video");
     videos.forEach((video) => {
+      enableVideoPiPCompatibility(video);
       if (!processedVideos.has(video)) setupVideoController(video);
-      else if (video._speedBtn) placeSpeedButton(video, video._speedBtn);
+      else if (video._speedBtn) placeControlButtons(video, video._speedBtn, video._pipBtn);
     });
   }
 
@@ -656,6 +731,12 @@
   document.addEventListener("MSFullscreenChange", handleFullscreenChange);
   document.addEventListener("click", () => closePopup());
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
+
+  window.addEventListener("resize", () => {
+    if (activePopup && activePopup._video && activePopup._video._speedBtn) {
+      repositionPopup(activePopup, activePopup._video._speedBtn, getFullscreenContainer());
+    }
+  });
 
   const observer = new MutationObserver(() => scanAndAttachVideos());
   observer.observe(document.documentElement, { childList: true, subtree: true });

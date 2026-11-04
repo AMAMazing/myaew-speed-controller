@@ -11,9 +11,11 @@ html.myaew-cinema-active body {
   background-color: #000000 !important;
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   margin: 0 !important;
   padding: 0 !important;
   --u-total-nav-height: 0px !important;
+  overscroll-behavior: none !important;
 }
 
 html.myaew-cinema-active #app-wrapper,
@@ -23,8 +25,10 @@ html.myaew-cinema-active main.h-dynamic,
 html.myaew-cinema-active #event-detail {
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   max-width: 100vw !important;
   max-height: 100vh !important;
+  max-height: 100dvh !important;
   padding: 0 !important;
   margin: 0 !important;
   overflow: hidden !important;
@@ -35,8 +39,10 @@ html.myaew-cinema-active #event-detail {
 html.myaew-cinema-active #primaryViewer.viewer {
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   max-width: 100vw !important;
   max-height: 100vh !important;
+  max-height: 100dvh !important;
   padding: 0 !important;
   margin: 0 !important;
   top: 0 !important;
@@ -71,6 +77,7 @@ html.myaew-cinema-active .bitmovinplayer-container {
   height: 100% !important;
   max-width: 100vw !important;
   max-height: 100vh !important;
+  max-height: 100dvh !important;
   padding: 0 !important;
   margin: 0 !important;
   border-radius: 0 !important;
@@ -93,6 +100,7 @@ html.myaew-cinema-active #videoPlayer video {
   object-fit: contain !important;
   max-width: 100vw !important;
   max-height: 100vh !important;
+  max-height: 100dvh !important;
 }
 
 /* Hide irrelevant side/bottom panels while watching */
@@ -115,7 +123,7 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   right: 0 !important;
   width: 100% !important;
   height: 72px !important;
-  padding: 12px 24px !important;
+  padding: 12px max(24px, env(safe-area-inset-right, 24px)) 12px max(24px, env(safe-area-inset-left, 24px)) !important;
   box-sizing: border-box !important;
   display: flex !important;
   flex-direction: row !important;
@@ -126,6 +134,7 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   pointer-events: auto !important;
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
 }
 
 /* Left Section: Back Button + AEW Logo + Show Title */
@@ -150,6 +159,7 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   cursor: pointer !important;
   transition: all 0.2s ease !important;
   padding: 0 !important;
+  touch-action: manipulation !important;
 }
 
 .myaew-back-btn:hover {
@@ -171,6 +181,7 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   display: flex !important;
   align-items: center !important;
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+  flex-shrink: 0 !important;
 }
 
 .myaew-logo img {
@@ -194,13 +205,6 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   border-left: 2px solid rgba(255, 255, 255, 0.25) !important;
   padding-left: 14px !important;
   line-height: 1.2 !important;
-}
-
-@media (max-width: 640px) {
-  .myaew-show-title {
-    font-size: 14px !important;
-    max-width: 180px !important;
-  }
 }
 
 /* Right Section: Stream Selector + Help */
@@ -232,6 +236,7 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
   justify-content: center !important;
   opacity: 0.85 !important;
   transition: opacity 0.2s, transform 0.2s !important;
+  touch-action: manipulation !important;
 }
 
 .myaew-help-btn:hover {
@@ -270,6 +275,8 @@ html.myaew-cinema-active #videoPlayer > div.absolute.top-0.left-0.w-1\/2 {
 
 .player-controls {
   transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  -webkit-tap-highlight-color: transparent !important;
 }
 
 /* Bottom Controls Gradient improvement */
@@ -302,4 +309,54 @@ html.myaew-fullscreen .myaew-top-overlay .nav-pip-selector,
 .myaew-fullscreen .nav-pip-selector,
 .myaew-fullscreen .myaew-top-overlay .nav-pip-selector {
   display: none !important;
+}
+
+/* 5. Mobile & Vivaldi Android Specific Tweaks (Does not affect Desktop) */
+@media (max-width: 768px), (hover: none) and (pointer: coarse) {
+  .myaew-top-overlay {
+    height: 58px !important;
+    padding: 8px max(14px, env(safe-area-inset-right, 14px)) 8px max(14px, env(safe-area-inset-left, 14px)) !important;
+  }
+
+  .myaew-top-overlay-left {
+    gap: 10px !important;
+  }
+
+  .myaew-back-btn {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+  }
+
+  .myaew-logo {
+    height: 22px !important;
+  }
+
+  .myaew-show-title {
+    font-size: 14px !important;
+    margin-left: 4px !important;
+    padding-left: 10px !important;
+  }
+
+  .myaew-top-overlay-right {
+    gap: 10px !important;
+  }
+
+  /* Ensure bottom control buttons have comfortable touch hitboxes on Android */
+  .player-controls .right-side {
+    gap: 6px !important;
+    align-items: center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Save horizontal space for Show Title & Stream Selector in narrow portrait */
+  .myaew-logo {
+    display: none !important;
+  }
+  .myaew-show-title {
+    border-left: none !important;
+    padding-left: 2px !important;
+    margin-left: 2px !important;
+  }
 }
