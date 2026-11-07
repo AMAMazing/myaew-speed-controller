@@ -47,6 +47,7 @@
         "*://myaew.edu.au/*"
       ],
       "js": [
+        "homescreen.js",
         "player.js",
         "speed-controller.js"
       ],
